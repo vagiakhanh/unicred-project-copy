@@ -69,6 +69,17 @@ export default function SignupPage() {
       const activeSession = authData?.session;
       console.log('[Signup] Kiểm tra session nhận được:', activeSession);
 
+      // If Supabase requires email confirmation, session is null here.
+      // Storage upload needs an authenticated session — warn the user early
+      // instead of letting the upload fail silently with an RLS error.
+      if (!activeSession) {
+        setSuccessMsg(
+          'Tài khoản đã được tạo! Vui lòng kiểm tra hộp thư email học đường để xác nhận tài khoản. ' +
+          'Sau khi xác nhận, hãy đăng nhập và tải thẻ sinh viên lên trong phần Hồ sơ cá nhân.'
+        );
+        return; // Stop here — upload requires an active session
+      }
+
       // Simulated AI Card Verification Scan
       let flaggedReason: string | null = null;
       if (cardFile.name.toLowerCase().includes('fake') || cardFile.size < 10240) {
@@ -112,13 +123,20 @@ export default function SignupPage() {
         console.log('[Signup] URL thẻ sinh viên công khai:', cardUrl);
       } catch (uploadErr: any) {
         console.error('[Signup Error] Chi tiết lỗi tải lên file thẻ sinh viên:', JSON.stringify(uploadErr, null, 2));
-        // Provide a clear, actionable message for the most common storage errors
         const msg: string = uploadErr?.message || '';
         let friendlyMsg = `Lỗi tải lên thẻ sinh viên: ${msg}`;
-        if (msg.toLowerCase().includes('bucket not found') || msg.toLowerCase().includes('bucket') ) {
-          friendlyMsg = 'Storage bucket "unicred-media" chưa được tạo trong Supabase. Vui lòng vào Supabase Dashboard → Storage → New bucket → đặt tên "unicred-media" và bật Public, hoặc chạy lệnh SQL tạo bucket trong schema.sql.';
-        } else if (msg.toLowerCase().includes('not allowed') || msg.toLowerCase().includes('unauthorized')) {
-          friendlyMsg = 'Không có quyền tải file lên. Vui lòng kiểm tra Storage Policy trong Supabase Dashboard.';
+        if (msg.toLowerCase().includes('bucket not found')) {
+          friendlyMsg = 'Storage bucket "unicred-media" chưa được tạo. Vào Supabase Dashboard → Storage → New bucket → tên "unicred-media" → bật Public.';
+        } else if (msg.toLowerCase().includes('row-level security') || msg.toLowerCase().includes('violates') || msg.toLowerCase().includes('not allowed')) {
+          // RLS on storage.objects is blocking anonymous uploads.
+          // Fix: run this SQL in Supabase SQL Editor:
+          //   DROP POLICY IF EXISTS "Allow authenticated uploads to unicred-media" ON storage.objects;
+          //   CREATE POLICY "Allow anon and auth uploads to unicred-media"
+          //     ON storage.objects FOR INSERT
+          //     WITH CHECK (bucket_id = 'unicred-media');
+          friendlyMsg =
+            'Lỗi quyền truy cập Storage (RLS). Vào Supabase Dashboard → Storage → unicred-media → Policies ' +
+            'và thêm policy INSERT cho role "anon" và "authenticated", hoặc chạy lệnh SQL fix trong schema.sql.';
         }
         throw new Error(friendlyMsg);
       }

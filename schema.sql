@@ -666,3 +666,15 @@ CREATE POLICY "Allow public read from unicred-media"
   ON storage.objects FOR SELECT
   USING (bucket_id = 'unicred-media');
 
+
+-- =======================================================
+-- STORAGE RLS FIX: Allow anon + authenticated uploads
+-- =======================================================
+-- Run this if signup gives 'violates row-level security policy'.
+-- The previous policy only allowed 'authenticated' role, but during signup
+-- with email confirmation enabled, the session is null (anon role).
+DROP POLICY IF EXISTS "Allow authenticated uploads to unicred-media" ON storage.objects;
+CREATE POLICY "Allow anon and auth uploads to unicred-media"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'unicred-media');
+
