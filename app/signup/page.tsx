@@ -56,6 +56,14 @@ export default function SignupPage() {
 
       if (authError) {
         console.error('[Signup Error] Lỗi đăng ký auth.signUp từ Supabase:', JSON.stringify(authError, null, 2));
+        const errMsg: string = authError.message || '';
+        if (errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('email rate')) {
+          throw new Error(
+            'Hệ thống email đang bị giới hạn gửi quá nhiều yêu cầu (Đây là giới hạn của Supabase free tier: 2 email/giờ). ' +
+            'Vui lòng chờ khoảng 1 tiếng rồi thử lại. Hoặc để khắc phục ngay: ' +
+            'vào Supabase Dashboard → Authentication → Settings → tắt “Enable email confirmations”.'
+          );
+        }
         throw authError;
       }
 
@@ -203,7 +211,15 @@ export default function SignupPage() {
 
     } catch (err: any) {
       console.error('[Signup Error] Lỗi tổng thể trong luồng đăng ký:', JSON.stringify(err, null, 2));
-      setErrorMsg(err.message || 'Đăng ký thất bại. Vui lòng kiểm tra lại thông tin.');
+      const errMsg: string = err?.message || '';
+      if (errMsg.toLowerCase().includes('rate limit') || errMsg.toLowerCase().includes('email rate')) {
+        setErrorMsg(
+          'Hệ thống đang bị giới hạn gửi email (Supabase free tier: 2 email/giờ). ' +
+          'Vui lòng đợi ~1 tiếng rồi thử lại. Hoặc vào Supabase Dashboard → Authentication → Settings → tắt “Enable email confirmations” để khắcphục người dùng có thể đăng ký ngay lập tức.'
+        );
+      } else {
+        setErrorMsg(errMsg || 'Đăng ký thất bại. Vui lòng kiểm tra lại thông tin.');
+      }
     } finally {
       console.log('[Signup] Luồng xử lý hoàn tất, tắt trạng thái loading.');
       setIsSubmitting(false);
