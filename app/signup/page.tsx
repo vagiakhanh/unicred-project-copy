@@ -80,13 +80,24 @@ export default function SignupPage() {
       let cardUrl = '';
       try {
         console.log('[Signup] Đang tải lên ảnh thẻ sinh viên lên Storage...');
-        const fileExt = cardFile.name.split('.').pop();
+
+        // Fix: Sanitize file extension — fall back to 'jpg' if undefined or empty,
+        // and strip any characters that are not alphanumeric (prevents invalid paths).
+        const rawExt = cardFile.name.includes('.')
+          ? cardFile.name.split('.').pop() || 'jpg'
+          : 'jpg';
+        const fileExt = rawExt.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() || 'jpg';
+
         const fileName = `${authUser.id}-${Date.now()}.${fileExt}`;
         const filePath = `student-cards/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
           .from('unicred-media')
-          .upload(filePath, cardFile);
+          .upload(filePath, cardFile, {
+            contentType: cardFile.type || 'image/jpeg',
+            upsert: false,
+          });
+
 
         if (uploadError) {
           throw uploadError;
