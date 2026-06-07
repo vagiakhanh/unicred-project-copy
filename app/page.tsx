@@ -160,9 +160,11 @@ export default function Dashboard() {
     handleUrlChat();
   }, [profile]);
 
-  // Fetch Jobs, Applications, and Active Contracts from Supabase
-  // Bug 4 Fix: Run all 5 queries in parallel via Promise.all instead of
-  // sequential awaits, cutting total wait time from (sum) to (max) of all queries.
+  // Fetch Jobs, Applications, and Active Contracts from Supabase.
+  // Fix: Removed FK join syntax (e.g. owner:owner_id(...)) which requires
+  // PostgREST to have FK relationships in its schema cache. Instead we fetch
+  // plain rows and resolve user profiles via a separate batch query, then
+  // merge the data in JS — immune to schema cache issues.
   const loadJobsAndRelations = async () => {
     if (!profile) return;
     try {
@@ -175,34 +177,13 @@ export default function Dashboard() {
         repLogsResult,
         appealsResult,
       ] = await Promise.all([
-        // All jobs with owner info
-        supabase
-          .from('jobs')
-          .select('*, owner:owner_id(email, name, is_verified, client_reputation, freelancer_reputation, reputation)')
-          .order('created_at', { ascending: false }),
-
-        // All applications with applicant details
-        supabase
-          .from('job_applications')
-          .select('*, user:user_id(email, name, reputation, freelancer_reputation, university)'),
-
-        // Active contracts with contractor details
-        supabase
-          .from('contracts')
-          .select('*, worker:worker_id(email, name, freelancer_reputation, reputation)'),
-
-        // Bug 6 Fix: Filter reputation_logs to only rows involving this user
-        // instead of fetching every record in the entire table.
-        supabase
-          .from('reputation_logs')
-          .select('*')
-          .or(`rater_id.eq.${profile.id},rated_user_id.eq.${profile.id}`),
-
-        // Bug 6 Fix: Filter appeals to only this user's appeals.
-        supabase
-          .from('appeals')
-          .select('*')
-          .eq('user_id', profile.id),
+        supabase.from('jobs').select('*').order('created_at', { ascending: false }),
+        supabase.from('job_applications').select('*'),
+        supabase.from('contracts').select('*'),
+        // Filter reputation_logs to only rows involving this user
+        supabase.from('reputation_logs').select('*').or(`rater_id.eq.${profile.id},rated_user_id.eq.${profile.id}`),
+        // Filter appeals to only this user's appeals
+        supabase.from('appeals').select('*').eq('user_id', profile.id),
       ]);
 
       if (jobsResult.error) throw jobsResult.error;
@@ -211,9 +192,51 @@ export default function Dashboard() {
       if (repLogsResult.error) throw repLogsResult.error;
       if (appealsResult.error) throw appealsResult.error;
 
-      setJobs(jobsResult.data as Job[] || []);
-      setApplications(appsResult.data as Application[] || []);
-      setContracts(contractsResult.data as Contract[] || []);
+      const rawJobs = jobsResult.data || [];
+      const rawApps = appsResult.data || [];
+      const rawContracts = contractsResult.data || [];
+
+      // Collect all user IDs we need profiles for (owners, applicants, workers)
+      const userIds = Array.from(new Set([
+        ...rawJobs.map((j: any) => j.owner_id),
+        ...rawApps.map((a: any) => a.user_id),
+        ...rawContracts.map((c: any) => c.worker_id),
+      ].filter(Boolean)));
+
+      // Single batch fetch for all referenced user profiles — no FK join needed
+      let usersMap: Record<string, any> = {};
+      if (userIds.length > 0) {
+        const { data: usersData } = await supabase
+          .from('users')
+          .select('id, email, name, is_verified, client_reputation, freelancer_reputation, reputation, university')
+          .in('id', userIds);
+
+        if (usersData) {
+          usersMap = Object.fromEntries(usersData.map((u: any) => [u.id, u]));
+        }
+      }
+
+      // Merge owner profile into each job
+      const jobsWithOwner = rawJobs.map((j: any) => ({
+        ...j,
+        owner: usersMap[j.owner_id] || null,
+      }));
+
+      // Merge applicant profile into each application
+      const appsWithUser = rawApps.map((a: any) => ({
+        ...a,
+        user: usersMap[a.user_id] || null,
+      }));
+
+      // Merge worker profile into each contract
+      const contractsWithWorker = rawContracts.map((c: any) => ({
+        ...c,
+        worker: usersMap[c.worker_id] || null,
+      }));
+
+      setJobs(jobsWithOwner as Job[]);
+      setApplications(appsWithUser as Application[]);
+      setContracts(contractsWithWorker as Contract[]);
       setReputationLogs(repLogsResult.data || []);
       setUserAppeals(appealsResult.data || []);
     } catch (err: any) {
@@ -223,7 +246,6 @@ export default function Dashboard() {
       setLoadingFeed(false);
     }
   };
-
 
   // Initial load
   useEffect(() => {
@@ -432,7 +454,7 @@ export default function Dashboard() {
             reputation_log_id: reputationLogId,
             reason,
             proof_image_url: proofUrl,
-            status: 'Disputed_Frozen', // Trigger check_appeal_constraints sets this too
+            status: 'Disputed_Frozen',
           },
         ]);
 
