@@ -45,6 +45,7 @@ CREATE TABLE jobs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   description TEXT,
+  price INTEGER NOT NULL DEFAULT 0,           -- Job budget in VND
   status TEXT DEFAULT 'open' CHECK (status IN ('open', 'in_progress', 'completed', 'cancelled')),
   owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
   assigned_worker_id UUID REFERENCES users(id) ON DELETE SET NULL,
