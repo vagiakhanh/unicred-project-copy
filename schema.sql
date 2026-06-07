@@ -640,3 +640,29 @@ CREATE POLICY "Participants can update messages seen status" ON messages FOR UPD
 -- notifications policies
 CREATE POLICY "Allow select own notifications" ON notifications FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Allow update own notifications" ON notifications FOR UPDATE USING (auth.uid() = user_id);
+
+-- =======================================================
+-- STORAGE: Create unicred-media bucket for student card uploads
+-- =======================================================
+-- Run this block if the bucket does not already exist.
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'unicred-media',
+  'unicred-media',
+  true,
+  10485760,
+  ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage RLS: Allow authenticated users to upload files
+CREATE POLICY "Allow authenticated uploads to unicred-media"
+  ON storage.objects FOR INSERT
+  TO authenticated
+  WITH CHECK (bucket_id = 'unicred-media');
+
+-- Storage RLS: Allow public read of all files
+CREATE POLICY "Allow public read from unicred-media"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'unicred-media');
+

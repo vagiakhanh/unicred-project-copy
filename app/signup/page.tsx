@@ -112,7 +112,15 @@ export default function SignupPage() {
         console.log('[Signup] URL thẻ sinh viên công khai:', cardUrl);
       } catch (uploadErr: any) {
         console.error('[Signup Error] Chi tiết lỗi tải lên file thẻ sinh viên:', JSON.stringify(uploadErr, null, 2));
-        throw new Error(`Lỗi tải lên thẻ sinh viên: ${uploadErr.message || 'Vui lòng kiểm tra lại cấu hình storage bucket unicred-media.'}`);
+        // Provide a clear, actionable message for the most common storage errors
+        const msg: string = uploadErr?.message || '';
+        let friendlyMsg = `Lỗi tải lên thẻ sinh viên: ${msg}`;
+        if (msg.toLowerCase().includes('bucket not found') || msg.toLowerCase().includes('bucket') ) {
+          friendlyMsg = 'Storage bucket "unicred-media" chưa được tạo trong Supabase. Vui lòng vào Supabase Dashboard → Storage → New bucket → đặt tên "unicred-media" và bật Public, hoặc chạy lệnh SQL tạo bucket trong schema.sql.';
+        } else if (msg.toLowerCase().includes('not allowed') || msg.toLowerCase().includes('unauthorized')) {
+          friendlyMsg = 'Không có quyền tải file lên. Vui lòng kiểm tra Storage Policy trong Supabase Dashboard.';
+        }
+        throw new Error(friendlyMsg);
       }
 
       // 3. Update the profile row created by the database trigger
