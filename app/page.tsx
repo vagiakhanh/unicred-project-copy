@@ -161,10 +161,19 @@ export default function Dashboard() {
   }, [profile]);
 
   // Fetch Jobs, Applications, and Active Contracts from Supabase.
-  // Fix: Removed FK join syntax (e.g. owner:owner_id(...)) which requires
-  // PostgREST to have FK relationships in its schema cache. Instead we fetch
-  // plain rows and resolve user profiles via a separate batch query, then
-  // merge the data in JS — immune to schema cache issues.
+  // Fault-tolerant: each table error is handled individually so a missing
+  // table (schema not fully set up) doesn't crash the whole dashboard.
+  const isMissingTableError = (err: any): boolean => {
+    const msg: string = err?.message || err?.details || '';
+    return (
+      msg.toLowerCase().includes('schema cache') ||
+      msg.toLowerCase().includes('does not exist') ||
+      msg.toLowerCase().includes('relation') ||
+      err?.code === 'PGRST204' ||
+      err?.code === '42P01'
+    );
+  };
+
   const loadJobsAndRelations = async () => {
     if (!profile) return;
     try {
@@ -180,17 +189,41 @@ export default function Dashboard() {
         supabase.from('jobs').select('*').order('created_at', { ascending: false }),
         supabase.from('job_applications').select('*'),
         supabase.from('contracts').select('*'),
-        // Filter reputation_logs to only rows involving this user
         supabase.from('reputation_logs').select('*').or(`rater_id.eq.${profile.id},rated_user_id.eq.${profile.id}`),
-        // Filter appeals to only this user's appeals
         supabase.from('appeals').select('*').eq('user_id', profile.id),
       ]);
 
+      // Jobs table is critical — throw if it fails
       if (jobsResult.error) throw jobsResult.error;
-      if (appsResult.error) throw appsResult.error;
-      if (contractsResult.error) throw contractsResult.error;
-      if (repLogsResult.error) throw repLogsResult.error;
-      if (appealsResult.error) throw appealsResult.error;
+
+      // Other tables: if the table is simply missing in the DB, log a warning
+      // and fall back to empty arrays so the rest of the UI still works.
+      const missingTables: string[] = [];
+
+      if (appsResult.error) {
+        if (isMissingTableError(appsResult.error)) missingTables.push('job_applications');
+        else throw appsResult.error;
+      }
+      if (contractsResult.error) {
+        if (isMissingTableError(contractsResult.error)) missingTables.push('contracts');
+        else throw contractsResult.error;
+      }
+      if (repLogsResult.error) {
+        if (isMissingTableError(repLogsResult.error)) missingTables.push('reputation_logs');
+        else throw repLogsResult.error;
+      }
+      if (appealsResult.error) {
+        if (isMissingTableError(appealsResult.error)) missingTables.push('appeals');
+        else throw appealsResult.error;
+      }
+
+      if (missingTables.length > 0) {
+        console.warn('[DB] Các bảng sau chưa tồn tại trong cơ sở dữ liệu:', missingTables.join(', '));
+        triggerToast(
+          `⚠️ Bảng DB chưa được tạo: ${missingTables.join(', ')}. Chạy schema.sql trong Supabase SQL Editor.`,
+          'error'
+        );
+      }
 
       const rawJobs = jobsResult.data || [];
       const rawApps = appsResult.data || [];
