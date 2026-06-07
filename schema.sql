@@ -568,12 +568,12 @@ CREATE POLICY "Allow delete own applications" ON job_applications FOR DELETE USI
 -- contracts policies
 CREATE POLICY "Allow read contracts" ON contracts FOR SELECT USING (true);
 CREATE POLICY "Allow insert own contracts" ON contracts FOR INSERT TO authenticated WITH CHECK (
-  EXISTS (SELECT 1 FROM jobs WHERE id = job_id AND owner_id = auth.uid()) OR
+  EXISTS (SELECT 1 FROM jobs j WHERE j.id = job_id AND j.owner_id = auth.uid()) OR
   EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')
 );
 CREATE POLICY "Allow update own contracts" ON contracts FOR UPDATE USING (
   worker_id = auth.uid() OR 
-  EXISTS (SELECT 1 FROM jobs WHERE id = job_id AND owner_id = auth.uid()) OR
+  EXISTS (SELECT 1 FROM jobs j WHERE j.id = job_id AND j.owner_id = auth.uid()) OR
   EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')
 );
 
