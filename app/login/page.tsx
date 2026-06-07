@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+// useRouter removed: AuthProvider handles navigation on SIGNED_IN
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -11,7 +11,10 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const router = useRouter();
+  // Bug 3 & 7 Fix: router is no longer needed here.
+  // AuthProvider's route-protection effect handles the redirect to '/' once
+  // the session is confirmed — removing the competing navigation and
+  // the unnecessary 1-second artificial delay.
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,10 +35,9 @@ export default function LoginPage() {
 
       if (error) throw error;
 
+      // AuthProvider's onAuthStateChange + route-protection effect will
+      // automatically redirect to '/' — no manual push or delay needed.
       setSuccessMsg('Đăng nhập thành công! Đang chuyển hướng...');
-      setTimeout(() => {
-        router.push('/');
-      }, 1000);
     } catch (err: any) {
       console.error('Login failed:', err);
       setErrorMsg(err.message || 'Sai tài khoản hoặc mật khẩu. Vui lòng kiểm tra lại.');

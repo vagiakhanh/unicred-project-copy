@@ -161,51 +161,61 @@ export default function Dashboard() {
   }, [profile]);
 
   // Fetch Jobs, Applications, and Active Contracts from Supabase
+  // Bug 4 Fix: Run all 5 queries in parallel via Promise.all instead of
+  // sequential awaits, cutting total wait time from (sum) to (max) of all queries.
   const loadJobsAndRelations = async () => {
+    if (!profile) return;
     try {
       setLoadingFeed(true);
 
-      // Fetch all jobs, joining on owner information
-      const { data: jobsData, error: jobsError } = await supabase
-        .from('jobs')
-        .select('*, owner:owner_id(email, name, is_verified, client_reputation, freelancer_reputation, reputation)')
-        .order('created_at', { ascending: false });
+      const [
+        jobsResult,
+        appsResult,
+        contractsResult,
+        repLogsResult,
+        appealsResult,
+      ] = await Promise.all([
+        // All jobs with owner info
+        supabase
+          .from('jobs')
+          .select('*, owner:owner_id(email, name, is_verified, client_reputation, freelancer_reputation, reputation)')
+          .order('created_at', { ascending: false }),
 
-      if (jobsError) throw jobsError;
+        // All applications with applicant details
+        supabase
+          .from('job_applications')
+          .select('*, user:user_id(email, name, reputation, freelancer_reputation, university)'),
 
-      // Fetch all applications, joining on applicant details
-      const { data: appsData, error: appsError } = await supabase
-        .from('job_applications')
-        .select('*, user:user_id(email, name, reputation, freelancer_reputation, university)');
+        // Active contracts with contractor details
+        supabase
+          .from('contracts')
+          .select('*, worker:worker_id(email, name, freelancer_reputation, reputation)'),
 
-      if (appsError) throw appsError;
+        // Bug 6 Fix: Filter reputation_logs to only rows involving this user
+        // instead of fetching every record in the entire table.
+        supabase
+          .from('reputation_logs')
+          .select('*')
+          .or(`rater_id.eq.${profile.id},rated_user_id.eq.${profile.id}`),
 
-      // Fetch active contracts, joining on contractor details
-      const { data: contractsData, error: contractsError } = await supabase
-        .from('contracts')
-        .select('*, worker:worker_id(email, name, freelancer_reputation, reputation)');
+        // Bug 6 Fix: Filter appeals to only this user's appeals.
+        supabase
+          .from('appeals')
+          .select('*')
+          .eq('user_id', profile.id),
+      ]);
 
-      if (contractsError) throw contractsError;
+      if (jobsResult.error) throw jobsResult.error;
+      if (appsResult.error) throw appsResult.error;
+      if (contractsResult.error) throw contractsResult.error;
+      if (repLogsResult.error) throw repLogsResult.error;
+      if (appealsResult.error) throw appealsResult.error;
 
-      // Fetch reputation logs
-      const { data: repLogsData, error: repLogsError } = await supabase
-        .from('reputation_logs')
-        .select('*');
-
-      if (repLogsError) throw repLogsError;
-
-      // Fetch appeals
-      const { data: appealsData, error: appealsError } = await supabase
-        .from('appeals')
-        .select('*');
-
-      if (appealsError) throw appealsError;
-
-      setJobs(jobsData as Job[] || []);
-      setApplications(appsData as Application[] || []);
-      setContracts(contractsData as Contract[] || []);
-      setReputationLogs(repLogsData || []);
-      setUserAppeals(appealsData || []);
+      setJobs(jobsResult.data as Job[] || []);
+      setApplications(appsResult.data as Application[] || []);
+      setContracts(contractsResult.data as Contract[] || []);
+      setReputationLogs(repLogsResult.data || []);
+      setUserAppeals(appealsResult.data || []);
     } catch (err: any) {
       console.error('Failed to load marketplace feeds:', err);
       triggerToast(err.message || 'Lỗi kết nối cơ sở dữ liệu Supabase.', 'error');
@@ -213,6 +223,7 @@ export default function Dashboard() {
       setLoadingFeed(false);
     }
   };
+
 
   // Initial load
   useEffect(() => {

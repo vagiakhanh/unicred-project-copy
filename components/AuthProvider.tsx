@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { User } from '@supabase/supabase-js';
 import { useRouter, usePathname } from 'next/navigation';
@@ -50,7 +50,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const fetchProfile = async (uid: string) => {
+  // Bug 1 & 2 Fix: Track whether initUser is still running so the auth
+  // listener doesn't race with it, causing double fetches and flicker.
+  const isInitializing = useRef(true);
+
+  const buildFallbackProfile = (uid: string, email: string): UserProfile => ({
+    id: uid,
+    email,
+    name: email ? email.split('@')[0] : 'Sinh Viên',
+    university: 'Đại học Bách Khoa Hà Nội (HUST)',
+    major: 'Chưa cập nhật',
+    credits: 100,
+    trust_score: 0,
+    freelancer_reputation: 100,
+    client_reputation: 100,
+    reputation: 100,
+    is_verified: false,
+    avatar_url: null,
+    bio: null,
+    student_card_url: null,
+    facebook_url: null,
+    instagram_url: null,
+    role: 'user',
+    is_banned: false,
+    flagged_reason: null,
+  });
+
+  const fetchProfile = async (uid: string, email = '') => {
     try {
       console.log(`[Auth] Đang tải hồ sơ sinh viên cho UID: ${uid}`);
       const { data, error } = await supabase
@@ -58,33 +84,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .select('*')
         .eq('id', uid)
         .single();
-      
+
       if (error || !data) {
-        console.log("Profile not found, creating automatically");
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        const userEmail = currentUser?.email || '';
-        
-        const fallbackProfile = {
-          id: uid,
-          email: userEmail,
-          name: userEmail ? userEmail.split('@')[0] : 'Sinh Viên',
-          university: 'Đại học Bách Khoa Hà Nội (HUST)',
-          major: 'Chưa cập nhật',
-          credits: 100,
-          trust_score: 0,
-          freelancer_reputation: 100,
-          client_reputation: 100,
-          reputation: 100,
-          is_verified: false,
-          avatar_url: null,
-          bio: null,
-          student_card_url: null,
-          facebook_url: null,
-          instagram_url: null,
-          role: 'user' as const,
-          is_banned: false,
-          flagged_reason: null,
-        };
+        console.log('Profile not found, creating automatically');
+        // Resolve email if not provided
+        if (!email) {
+          const { data: { user: currentUser } } = await supabase.auth.getUser();
+          email = currentUser?.email || '';
+        }
+
+        const fallbackProfile = buildFallbackProfile(uid, email);
 
         const { data: newProfile, error: insertError } = await supabase
           .from('users')
@@ -94,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (insertError) {
           console.error('[Auth Error] Tự động tạo hồ sơ thất bại:', insertError);
-          setProfile(fallbackProfile as UserProfile);
+          setProfile(fallbackProfile);
         } else {
           setProfile(newProfile as UserProfile);
         }
@@ -104,28 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error('[Auth Exception] Lỗi ngoại lệ trong fetchProfile:', err);
-      // NEVER block UI waiting for profile, always set loading = false even on error
-      setProfile({
-        id: uid,
-        email: '',
-        name: 'Sinh Viên',
-        university: 'Đại học',
-        major: 'Chưa cập nhật',
-        credits: 100,
-        trust_score: 0,
-        freelancer_reputation: 100,
-        client_reputation: 100,
-        reputation: 100,
-        is_verified: false,
-        avatar_url: null,
-        bio: null,
-        student_card_url: null,
-        facebook_url: null,
-        instagram_url: null,
-        role: 'user',
-        is_banned: false,
-        flagged_reason: null,
-      });
+      setProfile(buildFallbackProfile(uid, email));
     }
   };
 
@@ -138,18 +126,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const initUser = async () => {
     try {
       setLoading(true);
+      isInitializing.current = true;
+
       // 1. Check session first
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
+
       if (sessionError || !session) {
-        console.log("No active session or session error, redirecting to login");
+        console.log('No active session or session error, redirecting to login');
         setUser(null);
         setProfile(null);
-        setLoading(false);
         // Force redirect to login immediately if we are not on an auth route
         const isAuthRoute = window.location.pathname === '/login' || window.location.pathname === '/signup';
         if (!isAuthRoute) {
-          window.location.href = "/login";
+          window.location.href = '/login';
         }
         return;
       }
@@ -157,57 +146,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const activeUser = session.user;
       setUser(activeUser);
 
-      // 2. Fetch profile from users table
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', activeUser.id)
-        .single();
-
-      if (error || !data) {
-        console.log("Profile not found, creating profile automatically");
-        const userEmail = activeUser.email || '';
-        
-        const fallbackProfile = {
-          id: activeUser.id,
-          email: userEmail,
-          name: userEmail ? userEmail.split('@')[0] : 'Sinh Viên',
-          university: 'Đại học Bách Khoa Hà Nội (HUST)',
-          major: 'Chưa cập nhật',
-          credits: 100,
-          trust_score: 0,
-          freelancer_reputation: 100,
-          client_reputation: 100,
-          reputation: 100,
-          is_verified: false,
-          avatar_url: null,
-          bio: null,
-          student_card_url: null,
-          facebook_url: null,
-          instagram_url: null,
-          role: 'user' as const,
-          is_banned: false,
-          flagged_reason: null,
-        };
-
-        const { data: newProfile, error: insertError } = await supabase
-          .from('users')
-          .insert([fallbackProfile])
-          .select()
-          .single();
-
-        if (insertError) {
-          console.error('[Auth Error] Tự động tạo hồ sơ thất bại:', insertError);
-          setProfile(fallbackProfile as UserProfile);
-        } else {
-          setProfile(newProfile as UserProfile);
-        }
-      } else {
-        setProfile(data as UserProfile);
-      }
+      // 2. Fetch profile — single fetch, no duplicate from the listener
+      await fetchProfile(activeUser.id, activeUser.email || '');
     } catch (err) {
       console.error('[Auth Exception] Lỗi trong initUser:', err);
     } finally {
+      isInitializing.current = false;
       setLoading(false);
     }
   };
@@ -215,23 +159,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     initUser();
 
-    // 2. Listen to active auth events
+    // Listen to active auth events
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log(`[Auth Event] Sự kiện Auth thay đổi: ${event}`);
+
+      // Bug 1 & 2 Fix: While initUser is still running, ignore listener events
+      // to prevent double fetches and loading-state races.
+      if (isInitializing.current) {
+        console.log('[Auth] initUser đang chạy, bỏ qua sự kiện listener.');
+        return;
+      }
+
       const activeUser = session?.user ?? null;
       setUser(activeUser);
-      
+
       if (activeUser) {
-        await fetchProfile(activeUser.id);
+        // Only re-fetch if the user actually changed (e.g., a different account signed in)
+        await fetchProfile(activeUser.id, activeUser.email || '');
       } else {
         setProfile(null);
       }
       setLoading(false);
 
-      if (event === 'SIGNED_IN') {
-        router.push('/');
-      } else if (event === 'SIGNED_OUT') {
-        // Handled by signOut redirect
+      // Bug 3 Fix: Removed router.push('/') on SIGNED_IN here.
+      // The login page no longer needs a competing redirect — the route
+      // protection effect below handles navigation once loading is done.
+      if (event === 'SIGNED_OUT') {
+        // Handled by signOut function below
       }
     });
 
@@ -244,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return;
     const isAuthRoute = pathname === '/login' || pathname === '/signup';
-    
+
     if (!user && !isAuthRoute) {
       router.push('/login');
     } else if (user && isAuthRoute) {
@@ -259,11 +213,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.clear();
       setUser(null);
       setProfile(null);
-      window.location.href = "/login";
+      window.location.href = '/login';
     } catch (err) {
       console.error('Error during signOut:', err);
       localStorage.clear();
-      window.location.href = "/login";
+      window.location.href = '/login';
     }
   };
 
