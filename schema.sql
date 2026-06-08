@@ -577,6 +577,13 @@ CREATE POLICY "Allow update own contracts" ON contracts FOR UPDATE USING (
 
 -- credit_logs policies
 CREATE POLICY "Users can view own credit logs" ON credit_logs FOR SELECT USING (auth.uid() = user_id OR EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin'));
+-- INSERT is permitted unconditionally because credit_logs are written exclusively
+-- by SECURITY DEFINER triggers (check_job_post_credits, check_job_accept_credits,
+-- handle_job_status_change). No client code ever inserts directly.
+-- Without this policy, the trigger INSERT can be blocked in some Supabase
+-- connection-pooler configurations (PgBouncer transaction mode), rolling back
+-- the outer jobs INSERT silently and leaving the JS promise unresolved → button stuck.
+CREATE POLICY "Allow system insert credit logs" ON credit_logs FOR INSERT WITH CHECK (true);
 
 -- reputation_logs policies
 CREATE POLICY "Users can view public or related reputation logs" ON reputation_logs FOR SELECT USING (

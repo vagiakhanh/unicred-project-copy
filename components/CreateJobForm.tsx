@@ -92,26 +92,43 @@ export default function CreateJobForm({
     }
 
     try {
-      // Insert new job record. The trigger handle_job_post_credits will automatically
-      // validate the owner has >= 30 credits, deduct it, and create credit_logs.
-      const { data, error: insertError } = await supabase
-        .from('jobs')
-        .insert([
-          {
-            title: title.trim(),
-            description: description.trim(),
-            price: numericPrice,
-            status: 'open',
-            owner_id: activeUserId,
-            deadline: selectedDeadline.toISOString(),
-            category,
-            location: location.trim() || 'Online',
-            is_flagged: isFlagged,
-            flagged_reason: flaggedReason,
-          },
-        ])
-        .select()
-        .single();
+      // Wrap the insert in a 30-second timeout so the button never stays stuck
+      // if the network drops or the DB trigger causes a silent hang.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+      let data: any = null;
+      let insertError: any = null;
+
+      try {
+        const result = await (supabase
+          .from('jobs')
+          .insert([
+            {
+              title: title.trim(),
+              description: description.trim(),
+              price: numericPrice,
+              status: 'open',
+              owner_id: activeUserId,
+              deadline: selectedDeadline.toISOString(),
+              category,
+              location: location.trim() || 'Online',
+              is_flagged: isFlagged,
+              flagged_reason: flaggedReason,
+            },
+          ])
+          .select()
+          .single() as any);
+        clearTimeout(timeoutId);
+        data = result.data;
+        insertError = result.error;
+      } catch (abortErr: any) {
+        clearTimeout(timeoutId);
+        if (abortErr?.name === 'AbortError' || controller.signal.aborted) {
+          throw new Error('Yêu cầu hết thời gian chờ (30 giây). Vui lòng kiểm tra kết nối và thử lại.');
+        }
+        throw abortErr;
+      }
 
       if (insertError) throw insertError;
 
