@@ -64,6 +64,10 @@ export default function Dashboard() {
     jobsRef.current = jobs;
   }, [jobs]);
 
+  // Track whether the initial data load has been done so refreshProfile()
+  // changes don't re-trigger a full reload (which flashes the loading skeleton).
+  const hasLoadedRef = React.useRef(false);
+
   // Trigger Toast notifications
   const triggerToast = (message: string, type: 'success' | 'info' | 'error' = 'info') => {
     setToast({ message, type });
@@ -280,9 +284,12 @@ export default function Dashboard() {
     }
   };
 
-  // Initial load
+  // Initial load: only run once when profile first becomes available.
+  // Subsequent profile changes (e.g. from refreshProfile after job post)
+  // should NOT re-trigger a full reload — the realtime channel handles updates.
   useEffect(() => {
-    if (profile) {
+    if (profile && !hasLoadedRef.current) {
+      hasLoadedRef.current = true;
       loadJobsAndRelations();
     }
   }, [profile]);
@@ -517,13 +524,11 @@ export default function Dashboard() {
   // Categories Filtering
   const employerPostedJobs = jobs.filter((j) => j.owner_id === profile.id);
   const freelancerAvailableJobs = jobs.filter((j) => {
-    // Hide own postings
+    // Hide own postings — you can't apply to your own job
     if (j.owner_id === profile.id) return false;
     // Only show open jobs — in_progress/completed/cancelled are not claimable
     if (j.status !== 'open') return false;
-    // Hide flagged jobs from the public earn feed
-    if ((j as any).is_flagged) return false;
-    // Category checks
+    // Category filter
     if (selectedCategory !== 'all' && j.category !== selectedCategory) return false;
     return true;
   });

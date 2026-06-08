@@ -202,17 +202,11 @@ export default function JobCard({
             </span>
           )}
 
-          {/* Budget display: actual price for earn view, stake info for hire view */}
+          {/* Budget: always show the actual job price */}
           <div className="flex items-baseline gap-0.5">
-            {activeView === 'earn' ? (
-              <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
-                {job.price.toLocaleString('vi-VN')}đ
-              </span>
-            ) : (
-              <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">
-                30 credits cọc
-              </span>
-            )}
+            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+              {job.price.toLocaleString('vi-VN')}đ
+            </span>
           </div>
         </div>
 
@@ -265,7 +259,7 @@ export default function JobCard({
               📅 {formatVietnameseDate(job.deadline)}
             </span>
             <span className="text-[10px] text-text-muted font-medium block mt-0.5">
-              Mức thưởng: +10 credits
+              Ngân sách: <span className="text-emerald-600 font-bold">{job.price.toLocaleString('vi-VN')}đ</span>
             </span>
           </div>
         </div>
@@ -510,7 +504,7 @@ export default function JobCard({
                     ) : job.owner_id === activeUserId ? (
                       'Bài đăng của bạn'
                     ) : (
-                      'Ứng tuyển (Cọc 30 credits)'
+                      'Ứng tuyển — ' + job.price.toLocaleString('vi-VN') + 'đ'
                     )}
                   </button>
                 )}
