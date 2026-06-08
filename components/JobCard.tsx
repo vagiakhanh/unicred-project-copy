@@ -16,6 +16,7 @@ export interface Job {
   category: string;
   location?: string;
   created_at?: string;
+  is_flagged?: boolean;
   owner?: {
     email: string;
     name?: string;
@@ -201,11 +202,17 @@ export default function JobCard({
             </span>
           )}
 
-          {/* Staked or VND display info */}
+          {/* Budget display: actual price for earn view, stake info for hire view */}
           <div className="flex items-baseline gap-0.5">
-            <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">
-              30 credits cọc
-            </span>
+            {activeView === 'earn' ? (
+              <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                {job.price.toLocaleString('vi-VN')}đ
+              </span>
+            ) : (
+              <span className="text-xl font-black text-indigo-600 dark:text-indigo-400">
+                30 credits cọc
+              </span>
+            )}
           </div>
         </div>
 

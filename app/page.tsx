@@ -519,6 +519,10 @@ export default function Dashboard() {
   const freelancerAvailableJobs = jobs.filter((j) => {
     // Hide own postings
     if (j.owner_id === profile.id) return false;
+    // Only show open jobs — in_progress/completed/cancelled are not claimable
+    if (j.status !== 'open') return false;
+    // Hide flagged jobs from the public earn feed
+    if ((j as any).is_flagged) return false;
     // Category checks
     if (selectedCategory !== 'all' && j.category !== selectedCategory) return false;
     return true;
