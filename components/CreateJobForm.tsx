@@ -70,11 +70,6 @@ export default function CreateJobForm({
       return setErrorMsg('Số Credits không đủ! Bạn cần có ít nhất 20 credits để đặt cọc khi đăng việc.');
     }
 
-    // Số dư check (must cover job budget)
-    if (userSoDu < numericPrice) {
-      return setErrorMsg(`Số dư không đủ! Bạn cần có ít nhất ${numericPrice.toLocaleString('vi-VN')}đ trong Số dư để đăng việc này.`);
-    }
-
     if (!description.trim()) return setErrorMsg('Vui lòng nhập mô tả chi tiết công việc.');
 
     const selectedDeadline = new Date(deadline);
@@ -140,6 +135,15 @@ export default function CreateJobForm({
       if (insertError) throw insertError;
 
       if (data) {
+        // Deduct job budget from so_du (non-blocking — DB trigger handles staking credits)
+        supabase
+          .from('users')
+          .update({ so_du: Math.max(0, userSoDu - numericPrice) })
+          .eq('id', activeUserId)
+          .then(({ error: soduErr }) => {
+            if (soduErr) console.warn('[so_du deduct]', soduErr.message);
+          });
+
         setSuccessMsg(`Đăng việc thành công! Hệ thống đã trừ 20 credits cọc và khấu trừ ngân sách từ Số dư.`);
         
         // Reset form inputs (retaining default future date)

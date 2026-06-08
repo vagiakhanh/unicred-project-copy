@@ -203,34 +203,22 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 2. Deduct 20 credits from client when job is posted + deduct job budget from so_du
+-- 2. Deduct 20 credits from client when job is posted (staking)
 CREATE OR REPLACE FUNCTION check_job_post_credits()
 RETURNS trigger AS $$
 DECLARE
   v_credits INTEGER;
-  v_so_du   INTEGER;
 BEGIN
-  SELECT credits, so_du INTO v_credits, v_so_du FROM users WHERE id = NEW.owner_id;
+  SELECT credits INTO v_credits FROM users WHERE id = NEW.owner_id;
 
-  -- Check staking credits
   IF v_credits < 20 THEN
-    RAISE EXCEPTION 'Số dư credits của bạn không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
-  END IF;
-
-  -- Check so_du covers job budget
-  IF v_so_du < NEW.price THEN
-    RAISE EXCEPTION 'Số dư không đủ để đăng việc (cần % đ, hiện tại bạn có % đ).', NEW.price, v_so_du;
+    RAISE EXCEPTION 'Số Credits không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
   END IF;
 
   -- Deduct 20 staking credits
   UPDATE users SET credits = credits - 20 WHERE id = NEW.owner_id;
   INSERT INTO credit_logs (user_id, amount, type)
   VALUES (NEW.owner_id, -20, 'job_post_stake');
-
-  -- Deduct job budget from so_du
-  UPDATE users SET so_du = so_du - NEW.price WHERE id = NEW.owner_id;
-  INSERT INTO credit_logs (user_id, amount, type)
-  VALUES (NEW.owner_id, -NEW.price, 'job_post_budget');
 
   RETURN NEW;
 END;
@@ -715,28 +703,22 @@ ALTER PUBLICATION supabase_realtime ADD TABLE job_applications;
 -- Step 2: Add so_du column if it doesn't exist
 ALTER TABLE users ADD COLUMN IF NOT EXISTS so_du INTEGER DEFAULT 0;
 
--- Step 2: Re-create updated trigger functions (safe to run multiple times)
+-- Step 3: Re-create updated trigger functions (safe to run multiple times)
+-- NOTE: check_job_post_credits only deducts 20 staking credits.
+-- so_du (budget) deduction is handled by the frontend after successful job insert.
 CREATE OR REPLACE FUNCTION check_job_post_credits()
 RETURNS trigger AS $$
 DECLARE
   v_credits INTEGER;
-  v_so_du   INTEGER;
 BEGIN
-  SELECT credits, so_du INTO v_credits, v_so_du FROM users WHERE id = NEW.owner_id;
+  SELECT credits INTO v_credits FROM users WHERE id = NEW.owner_id;
 
   IF v_credits < 20 THEN
-    RAISE EXCEPTION 'Số dư credits của bạn không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
-  END IF;
-
-  IF v_so_du < NEW.price THEN
-    RAISE EXCEPTION 'Số dư không đủ để đăng việc (cần % đ, hiện tại bạn có % đ).', NEW.price, v_so_du;
+    RAISE EXCEPTION 'Số Credits không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
   END IF;
 
   UPDATE users SET credits = credits - 20 WHERE id = NEW.owner_id;
   INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.owner_id, -20, 'job_post_stake');
-
-  UPDATE users SET so_du = so_du - NEW.price WHERE id = NEW.owner_id;
-  INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.owner_id, -NEW.price, 'job_post_budget');
 
   RETURN NEW;
 END;
