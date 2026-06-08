@@ -296,11 +296,14 @@ export default function Dashboard() {
 
   // Silently refresh the jobs feed whenever the user switches to the earn tab,
   // so newly posted jobs (by other users) appear without needing a page refresh.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (activeView === 'earn' && hasLoadedRef.current) {
-      loadJobsAndRelations(false);
+    if (activeView === 'earn') {
+      // Always do a fresh silent reload when switching to the earn tab,
+      // regardless of whether the initial load has run yet.
+      if (profile) loadJobsAndRelations(false);
     }
-  }, [activeView]);
+  }, [activeView, profile]);
 
   // Supabase Realtime Subscription Channel
   useEffect(() => {
@@ -371,9 +374,9 @@ export default function Dashboard() {
   // Handler: Apply to a job listing (Freelancer Action)
   const handleApplyToJob = async (jobId: string) => {
     try {
-      // Check if freelancer has at least 30 credits to stake
-      if (profile!.credits < 30) {
-        throw new Error('Số dư không đủ! Bạn cần có ít nhất 30 credits để đặt cọc khi nhận việc.');
+      // Check if freelancer has at least 20 credits to stake
+      if (profile!.credits < 20) {
+        throw new Error('Số Credits không đủ! Bạn cần có ít nhất 20 credits để đặt cọc khi nhận việc.');
       }
 
       const { error } = await supabase
@@ -383,7 +386,7 @@ export default function Dashboard() {
       if (error) throw error;
 
       triggerToast('Ứng tuyển thành công! Vui lòng đợi nhà tuyển dụng phản hồi.', 'success');
-      loadJobsAndRelations();
+      loadJobsAndRelations(false); // silent — no skeleton flash
     } catch (err: any) {
       console.error(err);
       triggerToast(err.message || 'Lỗi nộp đơn ứng tuyển.', 'error');

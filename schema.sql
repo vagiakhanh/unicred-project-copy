@@ -704,7 +704,15 @@ CREATE POLICY "Allow anon and auth uploads to unicred-media"
 -- and just want to apply the credit economy changes safely.
 -- DO NOT re-run the full schema above (it drops all tables).
 
--- Step 1: Add so_du column if it doesn't exist
+-- Step 1: Enable Supabase Realtime on the jobs table
+-- This is REQUIRED for other users' sessions to receive live updates
+-- when new jobs are posted. Without this the earn feed only updates on page refresh.
+-- In Supabase Dashboard: Database > Replication > Toggle ON 'jobs' table
+-- OR run the SQL below (requires supabase_admin role or use the Dashboard toggle):
+ALTER PUBLICATION supabase_realtime ADD TABLE jobs;
+ALTER PUBLICATION supabase_realtime ADD TABLE job_applications;
+
+-- Step 2: Add so_du column if it doesn't exist
 ALTER TABLE users ADD COLUMN IF NOT EXISTS so_du INTEGER DEFAULT 0;
 
 -- Step 2: Re-create updated trigger functions (safe to run multiple times)
