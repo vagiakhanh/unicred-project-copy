@@ -133,7 +133,17 @@ export default function CreateJobForm({
       if (insertError) throw insertError;
 
       if (data) {
-        setSuccessMsg(`Đăng việc thành công! Hệ thống đã trừ 20 credits cọc.`);
+        // Deduct 20 staking credits on the frontend (trigger is validation-only).
+        // This is non-blocking — the job is already posted successfully.
+        supabase
+          .from('users')
+          .update({ credits: Math.max(0, userCredits - 20) })
+          .eq('id', activeUserId)
+          .then(({ error: creditErr }) => {
+            if (creditErr) console.warn('[credits deduct]', creditErr.message);
+          });
+
+        setSuccessMsg(`Đăng việc thành công! Đã trừ 20 credits cọc.`);
         
         // Reset form inputs (retaining default future date)
         setTitle('');

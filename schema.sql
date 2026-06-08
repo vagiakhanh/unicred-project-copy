@@ -203,23 +203,17 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 2. Deduct 20 credits from client when job is posted (staking)
+-- 2. Validation-only: check client has enough credits before job insert.
+-- All writes (credit deduction) are handled by the frontend after success.
 CREATE OR REPLACE FUNCTION check_job_post_credits()
 RETURNS trigger AS $$
 DECLARE
   v_credits INTEGER;
 BEGIN
   SELECT credits INTO v_credits FROM users WHERE id = NEW.owner_id;
-
   IF v_credits < 20 THEN
     RAISE EXCEPTION 'Số Credits không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
   END IF;
-
-  -- Deduct 20 staking credits
-  UPDATE users SET credits = credits - 20 WHERE id = NEW.owner_id;
-  INSERT INTO credit_logs (user_id, amount, type)
-  VALUES (NEW.owner_id, -20, 'job_post_stake');
-
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -703,27 +697,24 @@ ALTER PUBLICATION supabase_realtime ADD TABLE job_applications;
 -- Step 2: Add so_du column if it doesn't exist
 ALTER TABLE users ADD COLUMN IF NOT EXISTS so_du INTEGER DEFAULT 0;
 
--- Step 3: Re-create updated trigger functions (safe to run multiple times)
--- NOTE: check_job_post_credits only deducts 20 staking credits.
--- so_du (budget) deduction is handled by the frontend after successful job insert.
+-- Step 3: CRITICAL FIX - Run this to fix job posting stuck at loading.
+-- The trigger is now VALIDATION-ONLY. No writes inside the trigger.
+-- Credit deduction happens on the frontend after a successful job insert.
+-- This eliminates the credit_logs RLS issue that caused the hang.
 CREATE OR REPLACE FUNCTION check_job_post_credits()
 RETURNS trigger AS $$
 DECLARE
   v_credits INTEGER;
 BEGIN
   SELECT credits INTO v_credits FROM users WHERE id = NEW.owner_id;
-
   IF v_credits < 20 THEN
     RAISE EXCEPTION 'Số Credits không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
   END IF;
-
-  UPDATE users SET credits = credits - 20 WHERE id = NEW.owner_id;
-  INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.owner_id, -20, 'job_post_stake');
-
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Also simplify accept trigger to validation-only
 CREATE OR REPLACE FUNCTION check_job_accept_credits()
 RETURNS trigger AS $$
 DECLARE
@@ -732,10 +723,8 @@ BEGIN
   IF NEW.assigned_worker_id IS NOT NULL AND (OLD.assigned_worker_id IS NULL OR OLD.assigned_worker_id != NEW.assigned_worker_id) THEN
     SELECT credits INTO v_credits FROM users WHERE id = NEW.assigned_worker_id;
     IF v_credits < 20 THEN
-      RAISE EXCEPTION 'Số dư credits của ứng viên không đủ để nhận việc (cần 20 credits cọc).';
+      RAISE EXCEPTION 'Số Credits của ứng viên không đủ để nhận việc (cần 20 credits cọc).';
     END IF;
-    UPDATE users SET credits = credits - 20 WHERE id = NEW.assigned_worker_id;
-    INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.assigned_worker_id, -20, 'job_accept_stake');
   END IF;
   RETURN NEW;
 END;
