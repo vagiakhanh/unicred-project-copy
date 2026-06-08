@@ -178,10 +178,10 @@ export default function Dashboard() {
     );
   };
 
-  const loadJobsAndRelations = async () => {
+  const loadJobsAndRelations = async (showLoadingIndicator = true) => {
     if (!profile) return;
     try {
-      setLoadingFeed(true);
+      if (showLoadingIndicator) setLoadingFeed(true);
 
       const [
         jobsResult,
@@ -294,6 +294,14 @@ export default function Dashboard() {
     }
   }, [profile]);
 
+  // Silently refresh the jobs feed whenever the user switches to the earn tab,
+  // so newly posted jobs (by other users) appear without needing a page refresh.
+  useEffect(() => {
+    if (activeView === 'earn' && hasLoadedRef.current) {
+      loadJobsAndRelations(false);
+    }
+  }, [activeView]);
+
   // Supabase Realtime Subscription Channel
   useEffect(() => {
     if (!profile) return;
@@ -304,14 +312,14 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'jobs' },
         () => {
-          loadJobsAndRelations();
+          loadJobsAndRelations(false); // silent — no skeleton flash
         }
       )
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'job_applications' },
         (payload) => {
-          loadJobsAndRelations();
+          loadJobsAndRelations(false);
           // Notify if active user owns the job
           const jobObj = jobsRef.current.find((j) => j.id === payload.new.job_id);
           if (jobObj && jobObj.owner_id === profile.id) {
@@ -323,7 +331,7 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'contracts' },
         (payload) => {
-          loadJobsAndRelations();
+          loadJobsAndRelations(false);
           refreshProfile();
           if (payload.eventType === 'INSERT') {
             if (payload.new.worker_id === profile.id) {
@@ -336,7 +344,7 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'reputation_logs' },
         (payload) => {
-          loadJobsAndRelations();
+          loadJobsAndRelations(false);
           refreshProfile();
           if (payload.eventType === 'INSERT') {
             if (payload.new.rated_user_id === profile.id) {
@@ -349,7 +357,7 @@ export default function Dashboard() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'appeals' },
         () => {
-          loadJobsAndRelations();
+          loadJobsAndRelations(false);
           refreshProfile();
         }
       )
@@ -624,9 +632,25 @@ export default function Dashboard() {
                 <CreateJobForm
                   activeUserId={profile.id}
                   userCredits={profile.credits}
+                  userSoDu={profile.so_du ?? 0}
                   isVerified={profile.is_verified}
                   onJobCreated={(newJob) => {
-                    setJobs((prev) => [newJob, ...prev]);
+                    // Attach the current user's profile as owner so the card
+                    // shows the correct username immediately (not 'Khách')
+                    const jobWithOwner = {
+                      ...newJob,
+                      owner: {
+                        email: profile.email,
+                        name: profile.name,
+                        is_verified: profile.is_verified,
+                        client_reputation: profile.client_reputation,
+                        freelancer_reputation: profile.freelancer_reputation,
+                        reputation: profile.reputation,
+                      },
+                    };
+                    setJobs((prev) => [jobWithOwner as any, ...prev]);
+                    // Silent reload so the earn feed also picks up the new job
+                    loadJobsAndRelations(false);
                     refreshProfile();
                   }}
                   onCreditsUpdated={() => refreshProfile()}

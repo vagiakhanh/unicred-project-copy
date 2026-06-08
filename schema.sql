@@ -26,7 +26,8 @@ CREATE TABLE users (
   major TEXT,
   avatar_url TEXT,
   bio TEXT,
-  credits INTEGER DEFAULT 100, -- Default 100 virtual credits
+  credits INTEGER DEFAULT 100, -- Staking credits (deducted 20 on post/claim, refunded +10 on complete)
+  so_du INTEGER DEFAULT 0,     -- VND budget pool (job budget deducted here on post)
   trust_score INTEGER DEFAULT 0, -- Default 0 trust score
   freelancer_reputation INTEGER DEFAULT 100 CHECK (freelancer_reputation BETWEEN 0 AND 100),
   client_reputation INTEGER DEFAULT 100 CHECK (client_reputation BETWEEN 0 AND 100),
@@ -173,7 +174,7 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
   INSERT INTO public.users (
-    id, email, name, university, major, credits, trust_score, 
+    id, email, name, university, major, credits, so_du, trust_score, 
     freelancer_reputation, client_reputation, reputation, is_verified, role, is_banned
   )
   VALUES (
@@ -182,7 +183,8 @@ BEGIN
     COALESCE(split_part(new.email, '@', 1), 'Sinh Viên'),
     'Đại học Bách Khoa Hà Nội (HUST)',
     'Chưa cập nhật',
-    100, -- default 100 credits
+    100, -- default 100 staking credits
+    0,   -- default 0 so_du (VND budget pool)
     0,   -- default 0 trust score
     100, -- default 100 reputation
     100,
@@ -201,24 +203,35 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 2. Deduct 30 credits from client when job is posted
+-- 2. Deduct 20 credits from client when job is posted + deduct job budget from so_du
 CREATE OR REPLACE FUNCTION check_job_post_credits()
 RETURNS trigger AS $$
 DECLARE
   v_credits INTEGER;
+  v_so_du   INTEGER;
 BEGIN
-  SELECT credits INTO v_credits FROM users WHERE id = NEW.owner_id;
-  IF v_credits < 30 THEN
-    RAISE EXCEPTION 'Số dư credits của bạn không đủ để đăng việc (cần 30 credits cọc, hiện tại bạn có %).', v_credits;
+  SELECT credits, so_du INTO v_credits, v_so_du FROM users WHERE id = NEW.owner_id;
+
+  -- Check staking credits
+  IF v_credits < 20 THEN
+    RAISE EXCEPTION 'Số dư credits của bạn không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
   END IF;
-  
-  -- Deduct
-  UPDATE users SET credits = credits - 30 WHERE id = NEW.owner_id;
-  
-  -- Log
+
+  -- Check so_du covers job budget
+  IF v_so_du < NEW.price THEN
+    RAISE EXCEPTION 'Số dư không đủ để đăng việc (cần % đ, hiện tại bạn có % đ).', NEW.price, v_so_du;
+  END IF;
+
+  -- Deduct 20 staking credits
+  UPDATE users SET credits = credits - 20 WHERE id = NEW.owner_id;
   INSERT INTO credit_logs (user_id, amount, type)
-  VALUES (NEW.owner_id, -30, 'job_post_stake');
-  
+  VALUES (NEW.owner_id, -20, 'job_post_stake');
+
+  -- Deduct job budget from so_du
+  UPDATE users SET so_du = so_du - NEW.price WHERE id = NEW.owner_id;
+  INSERT INTO credit_logs (user_id, amount, type)
+  VALUES (NEW.owner_id, -NEW.price, 'job_post_budget');
+
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -228,7 +241,7 @@ CREATE TRIGGER trg_check_job_post_credits
   BEFORE INSERT ON jobs
   FOR EACH ROW EXECUTE FUNCTION check_job_post_credits();
 
--- 3. Deduct 30 credits from freelancer when job application is accepted (Staking Mechanism)
+-- 3. Deduct 20 credits from freelancer when job application is accepted (Staking Mechanism)
 CREATE OR REPLACE FUNCTION check_job_accept_credits()
 RETURNS trigger AS $$
 DECLARE
@@ -236,16 +249,16 @@ DECLARE
 BEGIN
   IF NEW.assigned_worker_id IS NOT NULL AND (OLD.assigned_worker_id IS NULL OR OLD.assigned_worker_id != NEW.assigned_worker_id) THEN
     SELECT credits INTO v_credits FROM users WHERE id = NEW.assigned_worker_id;
-    IF v_credits < 30 THEN
-      RAISE EXCEPTION 'Số dư credits của ứng viên không đủ để nhận việc (cần 30 credits cọc).';
+    IF v_credits < 20 THEN
+      RAISE EXCEPTION 'Số dư credits của ứng viên không đủ để nhận việc (cần 20 credits cọc).';
     END IF;
     
-    -- Deduct
-    UPDATE users SET credits = credits - 30 WHERE id = NEW.assigned_worker_id;
+    -- Deduct 20 staking credits from worker
+    UPDATE users SET credits = credits - 20 WHERE id = NEW.assigned_worker_id;
     
     -- Log
     INSERT INTO credit_logs (user_id, amount, type)
-    VALUES (NEW.assigned_worker_id, -30, 'job_accept_stake');
+    VALUES (NEW.assigned_worker_id, -20, 'job_accept_stake');
   END IF;
   
   RETURN NEW;
@@ -279,17 +292,17 @@ RETURNS trigger AS $$
 BEGIN
   -- Job Completed
   IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
-    -- Client gets back 30 stake + 10 bonus = 40 credits
-    UPDATE users SET credits = credits + 40 WHERE id = NEW.owner_id;
+    -- Client gets back 20 stake + 10 bonus = 30 credits
+    UPDATE users SET credits = credits + 30 WHERE id = NEW.owner_id;
     INSERT INTO credit_logs (user_id, amount, type)
-    VALUES (NEW.owner_id, 40, 'job_completed_refund_bonus');
+    VALUES (NEW.owner_id, 30, 'job_completed_refund_bonus');
     UPDATE users SET trust_score = trust_score + 1 WHERE id = NEW.owner_id;
 
-    -- Worker gets back 30 stake + 10 bonus = 40 credits
+    -- Worker gets back 20 stake + 10 bonus = 30 credits
     IF NEW.assigned_worker_id IS NOT NULL THEN
-      UPDATE users SET credits = credits + 40 WHERE id = NEW.assigned_worker_id;
+      UPDATE users SET credits = credits + 30 WHERE id = NEW.assigned_worker_id;
       INSERT INTO credit_logs (user_id, amount, type)
-      VALUES (NEW.assigned_worker_id, 40, 'job_completed_refund_bonus');
+      VALUES (NEW.assigned_worker_id, 30, 'job_completed_refund_bonus');
       UPDATE users SET trust_score = trust_score + 1 WHERE id = NEW.assigned_worker_id;
       
       -- Set contract status to completed if exists
@@ -683,3 +696,80 @@ CREATE POLICY "Allow anon and auth uploads to unicred-media"
   ON storage.objects FOR INSERT
   WITH CHECK (bucket_id = 'unicred-media');
 
+
+-- =======================================================
+-- MIGRATION: Credit Economy Redesign (run on EXISTING DB)
+-- =======================================================
+-- Run ONLY this block if you already have the schema deployed
+-- and just want to apply the credit economy changes safely.
+-- DO NOT re-run the full schema above (it drops all tables).
+
+-- Step 1: Add so_du column if it doesn't exist
+ALTER TABLE users ADD COLUMN IF NOT EXISTS so_du INTEGER DEFAULT 0;
+
+-- Step 2: Re-create updated trigger functions (safe to run multiple times)
+CREATE OR REPLACE FUNCTION check_job_post_credits()
+RETURNS trigger AS $$
+DECLARE
+  v_credits INTEGER;
+  v_so_du   INTEGER;
+BEGIN
+  SELECT credits, so_du INTO v_credits, v_so_du FROM users WHERE id = NEW.owner_id;
+
+  IF v_credits < 20 THEN
+    RAISE EXCEPTION 'Số dư credits của bạn không đủ để đăng việc (cần 20 credits cọc, hiện tại bạn có %).', v_credits;
+  END IF;
+
+  IF v_so_du < NEW.price THEN
+    RAISE EXCEPTION 'Số dư không đủ để đăng việc (cần % đ, hiện tại bạn có % đ).', NEW.price, v_so_du;
+  END IF;
+
+  UPDATE users SET credits = credits - 20 WHERE id = NEW.owner_id;
+  INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.owner_id, -20, 'job_post_stake');
+
+  UPDATE users SET so_du = so_du - NEW.price WHERE id = NEW.owner_id;
+  INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.owner_id, -NEW.price, 'job_post_budget');
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION check_job_accept_credits()
+RETURNS trigger AS $$
+DECLARE
+  v_credits INTEGER;
+BEGIN
+  IF NEW.assigned_worker_id IS NOT NULL AND (OLD.assigned_worker_id IS NULL OR OLD.assigned_worker_id != NEW.assigned_worker_id) THEN
+    SELECT credits INTO v_credits FROM users WHERE id = NEW.assigned_worker_id;
+    IF v_credits < 20 THEN
+      RAISE EXCEPTION 'Số dư credits của ứng viên không đủ để nhận việc (cần 20 credits cọc).';
+    END IF;
+    UPDATE users SET credits = credits - 20 WHERE id = NEW.assigned_worker_id;
+    INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.assigned_worker_id, -20, 'job_accept_stake');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION handle_job_status_change()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
+    UPDATE users SET credits = credits + 30 WHERE id = NEW.owner_id;
+    INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.owner_id, 30, 'job_completed_refund_bonus');
+    UPDATE users SET trust_score = trust_score + 1 WHERE id = NEW.owner_id;
+    IF NEW.assigned_worker_id IS NOT NULL THEN
+      UPDATE users SET credits = credits + 30 WHERE id = NEW.assigned_worker_id;
+      INSERT INTO credit_logs (user_id, amount, type) VALUES (NEW.assigned_worker_id, 30, 'job_completed_refund_bonus');
+      UPDATE users SET trust_score = trust_score + 1 WHERE id = NEW.assigned_worker_id;
+      UPDATE contracts SET status = 'completed' WHERE job_id = NEW.id;
+    END IF;
+  ELSIF NEW.status = 'cancelled' AND OLD.status != 'cancelled' THEN
+    UPDATE users SET trust_score = GREATEST(0, trust_score - 1) WHERE id = NEW.owner_id;
+    IF NEW.assigned_worker_id IS NOT NULL THEN
+      UPDATE users SET trust_score = GREATEST(0, trust_score - 1) WHERE id = NEW.assigned_worker_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

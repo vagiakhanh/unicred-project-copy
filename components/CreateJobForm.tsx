@@ -7,6 +7,7 @@ import { Job } from './JobCard';
 interface CreateJobFormProps {
   activeUserId: string;
   userCredits: number;
+  userSoDu: number;
   isVerified: boolean;
   onJobCreated: (newJob: Job) => void;
   onCreditsUpdated: (newCredits: number) => void;
@@ -24,6 +25,7 @@ const CATEGORIES = [
 export default function CreateJobForm({
   activeUserId,
   userCredits,
+  userSoDu,
   isVerified,
   onJobCreated,
   onCreditsUpdated,
@@ -63,9 +65,14 @@ export default function CreateJobForm({
       return setErrorMsg('Vui lòng nhập ngân sách hợp lệ lớn hơn 0đ.');
     }
 
-    // Credits check
-    if (userCredits < 30) {
-      return setErrorMsg('Số dư không đủ! Bạn cần có ít nhất 30 credits để đặt cọc khi đăng việc.');
+    // Credits check (20 staking credits required)
+    if (userCredits < 20) {
+      return setErrorMsg('Số Credits không đủ! Bạn cần có ít nhất 20 credits để đặt cọc khi đăng việc.');
+    }
+
+    // Số dư check (must cover job budget)
+    if (userSoDu < numericPrice) {
+      return setErrorMsg(`Số dư không đủ! Bạn cần có ít nhất ${numericPrice.toLocaleString('vi-VN')}đ trong Số dư để đăng việc này.`);
     }
 
     if (!description.trim()) return setErrorMsg('Vui lòng nhập mô tả chi tiết công việc.');
@@ -133,7 +140,7 @@ export default function CreateJobForm({
       if (insertError) throw insertError;
 
       if (data) {
-        setSuccessMsg(`Đăng việc thành công! Hệ thống đã tự động khấu trừ 30 credits cọc uy tín.`);
+        setSuccessMsg(`Đăng việc thành công! Hệ thống đã trừ 20 credits cọc và khấu trừ ngân sách từ Số dư.`);
         
         // Reset form inputs (retaining default future date)
         setTitle('');
@@ -147,7 +154,7 @@ export default function CreateJobForm({
         setDeadline(defaultDate.toISOString().split('T')[0]);
 
         // Trigger updates in parent dashboard
-        onCreditsUpdated(userCredits - 30);
+        onCreditsUpdated(userCredits - 20);
         onJobCreated(data as Job);
       }
     } catch (err: any) {
@@ -278,7 +285,7 @@ export default function CreateJobForm({
           <textarea
             id="description"
             rows={4}
-            placeholder="Nêu rõ yêu cầu kỹ thuật, tài liệu bàn giao, thời gian làm việc và cách kiểm thử..."
+            placeholder="Liệt kê chi tiết các yêu cầu, tài liệu bàn giao, thời gian, số lượng người muốn tuyển.."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             disabled={isSubmitting}

@@ -13,7 +13,8 @@ export interface UserProfile {
   major: string | null;
   bio: string | null;
   avatar_url: string | null;
-  credits: number;
+  credits: number;   // Staking credits
+  so_du: number;     // VND budget pool (Số dư)
   trust_score: number;
   freelancer_reputation: number;
   client_reputation: number;
@@ -61,6 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     university: 'Đại học Bách Khoa Hà Nội (HUST)',
     major: 'Chưa cập nhật',
     credits: 100,
+    so_du: 0,
     trust_score: 0,
     freelancer_reputation: 100,
     client_reputation: 100,
