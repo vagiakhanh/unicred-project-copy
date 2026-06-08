@@ -7,7 +7,6 @@ import { Job } from './JobCard';
 interface CreateJobFormProps {
   activeUserId: string;
   userCredits: number;
-  userSoDu: number;
   isVerified: boolean;
   onJobCreated: (newJob: Job) => void;
   onCreditsUpdated: (newCredits: number) => void;
@@ -25,7 +24,6 @@ const CATEGORIES = [
 export default function CreateJobForm({
   activeUserId,
   userCredits,
-  userSoDu,
   isVerified,
   onJobCreated,
   onCreditsUpdated,
@@ -135,16 +133,7 @@ export default function CreateJobForm({
       if (insertError) throw insertError;
 
       if (data) {
-        // Deduct job budget from so_du (non-blocking — DB trigger handles staking credits)
-        supabase
-          .from('users')
-          .update({ so_du: Math.max(0, userSoDu - numericPrice) })
-          .eq('id', activeUserId)
-          .then(({ error: soduErr }) => {
-            if (soduErr) console.warn('[so_du deduct]', soduErr.message);
-          });
-
-        setSuccessMsg(`Đăng việc thành công! Hệ thống đã trừ 20 credits cọc và khấu trừ ngân sách từ Số dư.`);
+        setSuccessMsg(`Đăng việc thành công! Hệ thống đã trừ 20 credits cọc.`);
         
         // Reset form inputs (retaining default future date)
         setTitle('');

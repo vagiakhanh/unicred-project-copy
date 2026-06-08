@@ -535,8 +535,6 @@ export default function Dashboard() {
   // Categories Filtering
   const employerPostedJobs = jobs.filter((j) => j.owner_id === profile.id);
   const freelancerAvailableJobs = jobs.filter((j) => {
-    // Hide own postings — you can't apply to your own job
-    if (j.owner_id === profile.id) return false;
     // Only show open jobs — in_progress/completed/cancelled are not claimable
     if (j.status !== 'open') return false;
     // Category filter
@@ -635,7 +633,6 @@ export default function Dashboard() {
                 <CreateJobForm
                   activeUserId={profile.id}
                   userCredits={profile.credits}
-                  userSoDu={profile.so_du ?? 0}
                   isVerified={profile.is_verified}
                   onJobCreated={(newJob) => {
                     // Attach the current user's profile as owner so the card

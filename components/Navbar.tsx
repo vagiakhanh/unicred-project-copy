@@ -164,15 +164,6 @@ export default function Navbar() {
                 </div>
               </div>
 
-              {/* Số dư: VND budget pool */}
-              <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-1.5 shadow-[0_0_15px_rgba(16,185,129,0.04)]">
-                <span className="text-xs">💰</span>
-                <span className="hidden md:inline text-[10px] text-text-muted font-bold uppercase tracking-wider">Số dư:</span>
-                <span className="text-xs sm:text-sm font-black text-emerald-500 tracking-wide">
-                  {(profile.so_du ?? 0).toLocaleString('vi-VN')}₫
-                </span>
-              </div>
-
               {/* Credits: staking balance */}
               <div className="flex items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/5 px-3.5 py-1.5 shadow-[0_0_15px_rgba(99,102,241,0.04)]">
                 <span className="text-xs">🪙</span>
