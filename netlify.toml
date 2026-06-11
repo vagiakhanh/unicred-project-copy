@@ -1,0 +1,4 @@
+# Netlify configuration file for UniCred (Next.js + Supabase)
+[build]
+  command = "npm run build"
+  publish = ".next"
